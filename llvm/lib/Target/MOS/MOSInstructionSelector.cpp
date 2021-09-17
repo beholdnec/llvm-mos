@@ -601,18 +601,19 @@ bool MOSInstructionSelector::selectLoadStore(MachineInstr &MI) {
     matchIndirectIndexed(Addr, Base, Offset, MRI);
   }
 
-  Register OffsetReg;
-  if (Offset.isImm()) {
-    OffsetReg =
-        Builder.buildInstr(MOS::LDImm, {LLT::scalar(8)}, {Offset.getImm()})
-            .getReg(0);
-  } else
-    OffsetReg = Offset.getReg();
+  // Register OffsetReg;
+  // if (Offset.isImm()) {
+  //   OffsetReg =
+  //       Builder.buildInstr(MOS::LDImm, {LLT::scalar(8)}, {Offset.getImm()})
+  //           .getReg(0);
+  // } else
+  //   OffsetReg = Offset.getReg();
 
   auto Instr = Builder.buildInstr(YIndirOpcode)
                    .add(SrcDstOp)
                    .add(Base)
-                   .addUse(OffsetReg)
+                   .add(Offset)
+                  //  .addUse(OffsetReg)
                    .cloneMemRefs(MI);
   if (!constrainSelectedInstRegOperands(*Instr, TII, TRI, RBI))
     return false;

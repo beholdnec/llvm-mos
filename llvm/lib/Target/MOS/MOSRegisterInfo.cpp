@@ -121,6 +121,18 @@ static bool pushPullBalanced(MachineBasicBlock::iterator Begin,
   return !PushCount;
 }
 
+static Optional<MachineBasicBlock::iterator> getLastDefOfReg(MachineBasicBlock &MBB,
+                                                  MachineBasicBlock::iterator I,
+                                                  Register Reg) {
+  for (auto MI = I; MI != MBB.begin(); --MI) {
+    if (MI->definesRegister(Reg)) {
+      return MI;
+    }
+  }
+
+  return {};
+}
+
 bool MOSRegisterInfo::saveScavengerRegister(MachineBasicBlock &MBB,
                                             MachineBasicBlock::iterator I,
                                             MachineBasicBlock::iterator &UseMI,
@@ -147,21 +159,34 @@ bool MOSRegisterInfo::saveScavengerRegister(MachineBasicBlock &MBB,
     report_fatal_error("Scavenger spill for register not yet implemented.");
   case MOS::A:
   case MOS::Y: {
-    const char *Save = Reg == MOS::A ? "__save_a" : "__save_y";
-    bool UseHardStack =
-        (Reg == MOS::A || STI.has65C02()) && pushPullBalanced(I, UseMI);
+    // FIXME: LLVM should avoid scavenging immediates automatically.
+    // Perhaps this is the wrong location for this code.
+    auto LastDef = getLastDefOfReg(MBB, I, Reg);
+    if (LastDef.hasValue()) {
+      outs() << "Last def of reg when spilling: " << **LastDef;
+    }
+    if (LastDef.hasValue() && (*LastDef)->getOpcode() == MOS::LDImm) {
+      auto Imm = (*LastDef)->getOperand(1).getImm();
+      (*LastDef)->eraseFromParent();
+      Builder.setInsertPt(MBB, UseMI);
+      Builder.buildInstr(MOS::LDImm).addDef(Reg).addImm(Imm);
+    } else {
+      const char *Save = Reg == MOS::A ? "__save_a" : "__save_y";
+      bool UseHardStack =
+          (Reg == MOS::A || STI.has65C02()) && pushPullBalanced(I, UseMI);
 
-    if (UseHardStack)
-      Builder.buildInstr(MOS::PH).addUse(Reg);
-    else
-      Builder.buildInstr(MOS::STAbs).addUse(Reg).addExternalSymbol(Save);
+      if (UseHardStack)
+        Builder.buildInstr(MOS::PH).addUse(Reg);
+      else
+        Builder.buildInstr(MOS::STAbs).addUse(Reg).addExternalSymbol(Save);
 
-    Builder.setInsertPt(MBB, UseMI);
+      Builder.setInsertPt(MBB, UseMI);
 
-    if (UseHardStack)
-      Builder.buildInstr(MOS::PL).addDef(Reg);
-    else
-      Builder.buildInstr(MOS::LDAbs).addDef(Reg).addExternalSymbol(Save);
+      if (UseHardStack)
+        Builder.buildInstr(MOS::PL).addDef(Reg);
+      else
+        Builder.buildInstr(MOS::LDAbs).addDef(Reg).addExternalSymbol(Save);
+    }
     break;
   }
   case MOS::P: {
